@@ -1,0 +1,29 @@
+#!/bin/bash
+
+COMPILER="${PATH_CXX:-@CLANGXX_BINARY@}"
+THIS_DIR=$(dirname $(readlink -f $0))
+PASS_NAME="libPathProfiling.so"
+
+if [[ -f "${THIS_DIR}/../lib/${PASS_NAME}" ]]; then
+  LIB_DIR=$(realpath "${THIS_DIR}/../lib")
+elif [[ -f "${THIS_DIR}/${PASS_NAME}" ]]; then
+  LIB_DIR=${THIS_DIR}
+else
+  echo "ERROR: Unable to find ${PASS_NAME}"
+  exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+  echo "Use $(basename $0) as a drop-in replacement for clang++" >&2
+  exit 1
+fi
+
+exec $COMPILER                                                      \
+    -Xclang -load -Xclang "${LIB_DIR}/${PASS_NAME}"                 \
+    -mllvm -path-profile-hash-threshold -mllvm 0xFFFFFFFFFFFFFFFF   \
+    -fPIC                                                           \
+    "$@"                                                            \
+    -L"${LIB_DIR}" -lPathProfilingRT                                \
+    -Wl,-rpath,"${LIB_DIR}"                                         \
+    -lrt                                                            \
+    -Qunused-arguments
