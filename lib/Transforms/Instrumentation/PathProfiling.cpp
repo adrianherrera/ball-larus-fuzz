@@ -297,6 +297,9 @@ private:
   // Number of currently-instrumented functions
   unsigned numInstrumentedFunctions;
 
+  // Unsigned add saturating intrinsic
+  Function *UAddSatIntrinsic;
+
   // For debugging
   FunctionCallee debugFunction;
 
@@ -399,6 +402,10 @@ static cl::opt<bool>
 static cl::opt<uint64_t>
     HashThreshold("path-profile-hash-threshold", cl::Hidden,
                   cl::desc("Set the hash table threshold."), cl::init(1000));
+
+static cl::opt<bool> PathDebug("path-profile-debug", cl::Hidden,
+                               cl::desc("Insert debug instrumentation."),
+                               cl::init(false));
 } // end anonymous namespace
 
 // Register the path profiler as a pass
@@ -1025,8 +1032,6 @@ void PathProfiler::insertCounterIncrement(Value *incValue,
 
   // Counter increment for array
   if (dag->getNumberOfPaths() <= HashThreshold) {
-    CallInst::Create(debugFunction, {FTEntry, incValue}, "", insertPoint);
-
     // Get pointer to the "array" index
     GetElementPtrInst *pcPointer = GetElementPtrInst::CreateInBounds(
         Int8Ty,
@@ -1039,24 +1044,22 @@ void PathProfiler::insertCounterIncrement(Value *incValue,
     oldPc->setMetadata(oldPc->getModule()->getMDKindID("nosanitize"),
                        MDNode::get(*Context, None));
 
-    // Test to see whether adding 1 will overflow the counter
-    ICmpInst *isMax =
-        new ICmpInst(insertPoint, CmpInst::ICMP_ULT, oldPc,
-                     createIncrementConstant(UINT8_MAX, 8), "isMax");
-
-    // Select increment for the path counter based on overflow
-    SelectInst *inc = SelectInst::Create(
-        isMax, createIncrementConstant(increment ? 1 : -1, 8),
-        createIncrementConstant(0, 8), "pathInc", insertPoint);
+    Value *inc = createIncrementConstant(increment ? 1 : -1, 8);
 
     // newPc = oldPc + inc
-    BinaryOperator *newPc = BinaryOperator::Create(Instruction::Add, oldPc, inc,
-                                                   "newPC", insertPoint);
+    CallInst *newPc =
+        CallInst::Create(UAddSatIntrinsic->getFunctionType(), UAddSatIntrinsic,
+                         {oldPc, inc}, "newPC", insertPoint);
 
     // Store back in to the array
     auto *Store = new StoreInst(newPc, pcPointer, insertPoint);
     Store->setMetadata(Store->getModule()->getMDKindID("nosanitize"),
                        MDNode::get(*Context, None));
+
+    // Debug function
+    if (debugFunction) {
+      CallInst::Create(debugFunction, {FTEntry, incValue}, "", insertPoint);
+    }
   }
 }
 
@@ -1333,11 +1336,16 @@ bool PathProfiler::runOnModule(Module &M) {
   VoidPtrTy = Type::getInt8PtrTy(*Context);
   FTEntryTy = StructType::create(*Context, {Int32Ty, VoidPtrTy}, "FTEntry");
 
+  UAddSatIntrinsic =
+      Intrinsic::getDeclaration(&M, Intrinsic::uadd_sat, {Int8Ty});
+
   numInstrumentedFunctions = 0;
 
-  debugFunction =
-      M.getOrInsertFunction("__path_profiler_dbg", Type::getVoidTy(*Context),
-                            PointerType::getUnqual(FTEntryTy), Int32Ty);
+  debugFunction = PathDebug
+                      ? M.getOrInsertFunction(
+                            "__path_profiler_dbg", Type::getVoidTy(*Context),
+                            PointerType::getUnqual(FTEntryTy), Int32Ty)
+                      : nullptr;
 
   unsigned functionNumber = 0;
   for (auto &F : M) {

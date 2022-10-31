@@ -1113,7 +1113,7 @@ __attribute__((weak)) void *__asan_region_is_poisoned(void *beg, size_t size) {
 }
 
 void __path_profiler_dbg(FTEntry *entry, u32 path_num) {
-  u8 counter = ((u8*)entry->array)[path_num];
+  u8 counter = ((u8 *)entry->array)[path_num];
   fprintf(stderr,
           "PATH_PROF: incrementing path count %u for entry %p (num paths: %u, "
           "path: %u)\n",
@@ -1127,7 +1127,6 @@ void __path_profiler_init(FTEntry *start, FTEntry *stop) {
 
   for (FTEntry *entry = start; entry < stop; ++entry) {
     num_paths += entry->size;
-    fprintf(stderr, "PATH_PROF: entry size -> %lu\n", entry->size);
     if (entry->size > max_num_entries) {
       max_num_entries = entry->size;
     }
@@ -1135,15 +1134,14 @@ void __path_profiler_init(FTEntry *start, FTEntry *stop) {
 
   if (unlikely(num_paths > __afl_map_size)) {
     if (num_paths > (1 << 29)) {
-      fprintf(
-          stderr,
-          "PATH_PROFILER: Num. paths: %lu is greater than the max map size. "
-          "Decrease the maximum allowable number of paths per function "
-          "(largest function has %lu entries)\n",
-          num_paths, max_num_entries);
+      fprintf(stderr,
+              "PATH_PROF: Num. paths: %lu is greater than the max map size. "
+              "Decrease the maximum allowable number of paths per function "
+              "(largest function has %lu entries)\n",
+              num_paths, max_num_entries);
     } else {
       fprintf(stderr,
-              "PATH_PROFILER: Num. paths: %lu, map size: %lu. Increase the map "
+              "PATH_PROF: Num. paths: %lu, map size: %lu. Increase the map "
               "size via the AFL_MAP_SIZE environment variable\n",
               num_paths, __afl_map_size);
     }
